@@ -3,7 +3,7 @@ from torch.nn import functional as F
 import kornia.geometry as kgm
 import kornia.filters as kf
 from Datasets.tartanTrajFlowDataset import extract_traj_data
-from loss import test_model
+from loss_sna import test_model
 import numpy as np
 
 
@@ -340,7 +340,7 @@ class Attack:
             loss_list = []
             loss_sum_list = []
             pert_expand = pert.expand(data_shape[0], -1, -1, -1)
-            for data_idx, data in enumerate(eval_data_loader):
+            for data_idx, data in enumerate(eval_data_loader): # On each one of the seeds
                 dataset_idx, dataset_name, traj_name, traj_len, \
                 img1_I0, img2_I0, intrinsic_I0, \
                 img1_I1, img2_I1, intrinsic_I1, \
@@ -358,6 +358,7 @@ class Attack:
                                                                     device)
                 loss = self.test_criterion(output_adv, scale.to(device),
                                            eval_y_list[data_idx].to(device), patch_pose.to(device))
+                # Loss is
 
                 loss_sum = loss.sum(dim=0)
                 loss_sum_list.append(loss_sum.item())

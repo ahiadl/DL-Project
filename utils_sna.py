@@ -1,7 +1,8 @@
 import argparse
 import torch
 
-from attacks import PGD, Const
+from attacks.pgd_sna import PGD
+from attacks import Const
 import torch.backends.cudnn as cudnn
 import random
 from TartanVO import TartanVO
@@ -11,7 +12,7 @@ from Datasets.tartanTrajFlowDataset import TrajFolderDataset, \
 from torch.utils.data import DataLoader
 from os import mkdir, makedirs
 from os.path import isdir
-from loss import VOCriterion
+from loss_sna import VOCriterion
 import numpy as np
 
 
@@ -75,8 +76,8 @@ def parse_args():
     # parser.add_argument('--attack_targeted', action='store_true', default=False, help='use targeted attacks')
     parser.add_argument('--attack_eval_mean_partial_rms', action='store_true', default=False, help='use mean partial rms criterion for attack evaluation criterion (default: False)')
     parser.add_argument('--attack_t_crit', default="none", type=str, metavar='ATTTC', help='translation criterion type for optimizing the attack (default: RMS between poses)')
-    parser.add_argument('--attack_rot_crit', default="none", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)')
-    parser.add_argument('--attack_flow_crit', default="none", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)')
+    parser.add_argument('--attack_rot_crit', default="none", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)') #'quat_product'
+    parser.add_argument('--attack_flow_crit', default="none", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)') #'mse' 'mae'
     parser.add_argument('--attack_target_t_crit', default="none", type=str, metavar='ATTTTC',
                         help='targeted translation criterion target for optimizing the attack, type is the same as untargeted criterion (default: None)')
     parser.add_argument('--attack_t_factor', type=float, default=1.0, help='factor for the translation criterion of the attack (default: 1.0)')
@@ -88,6 +89,10 @@ def parse_args():
     parser.add_argument('--window_stride', type=int, default=None, metavar='WST',
                         help='Trajectory window stride for optimizing attacks (default: whole window)')
     parser.add_argument('--load_attack', default=None, help='path to load previously computed perturbation (default: "")')
+
+    ## Added
+    parser.add_argument('--loss_weight', default='weighted', type=str, metavar='LW', help='loss weights') #'none' means no loss and 'weighted' means we add weights
+
 
     args = parser.parse_args()
     # print("args")
@@ -167,7 +172,8 @@ def compute_VO_args(args):
                                      t_factor=args.attack_t_factor,
                                      rot_factor=args.attack_rot_factor,
                                      flow_factor=args.attack_flow_factor,
-                                     target_t_factor=args.attack_target_t_factor)
+                                     target_t_factor=args.attack_target_t_factor,
+                                     loss_weight = args.loss_weight)
     args.att_criterion_str = args.att_criterion.criterion_str
     print("initializing RMS test criterion")
     args.rms_crit = VOCriterion()
@@ -192,6 +198,7 @@ def compute_VO_args(args):
 
 
 def compute_attack_args(args):
+    # Evaluation method chosen partial_rms or rms
     if args.attack_eval_mean_partial_rms:
         print("attack evaluation criterion is mean partial RMS test criterion")
         args.att_eval_criterion = args.mean_partial_rms_crit
@@ -208,7 +215,9 @@ def compute_attack_args(args):
         print("loading pre-computed attack from path: " + args.load_attack)
         load_pert_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()])
 
+    # Thi
     attack_dict = {'pgd': PGD, 'const': Const}
+    #attack_dict = {'pgd': pgd_sna, 'const': Const}
     args.attack_name = args.attack
     if args.attack not in attack_dict:
         args.attack = None

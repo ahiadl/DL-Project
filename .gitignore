@@ -1,0 +1,8 @@
+data/**
+results/**
+__pycache__/**
+attack/__pycache__/**
+.idea/**
+*.pkl
+*.pyc
+Python Console\]

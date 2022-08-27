@@ -121,6 +121,30 @@ def rtvec_to_pose(rtvec):
     pose[:, 3, 3] = 1
     return pose
 
+class MSELoss(torch.nn.Module):
+    def __init__(self):
+        super(MSELoss, self).__init__()
+        print("using MSE from the clean flow for regularization of flow in attacks")
+        self.MSELoss = torch.nn.MSELoss(reduction='mean')
+
+    def forward(self, x, y):
+        x = x.flatten(start_dim=1)
+        y = y.flatten(start_dim=1)
+        diff = self.MSELoss(x, y)
+        return diff
+
+class MAELoss(torch.nn.Module):
+    def __init__(self):
+        super(MAELoss, self).__init__()
+        print("using MAE from the clean flow for regularization of flow in attacks")
+        self.MAELoss = torch.nn.L1Loss(reduction='mean')
+
+    def forward(self, x, y):
+        x = x.flatten(start_dim=1)
+        y = y.flatten(start_dim=1)
+        diff = self.MAELoss(x, y)
+        return diff
+
 
 class CalcCriterion:
     def __init__(self, criterion_class):
@@ -135,7 +159,8 @@ class CalcCriterion:
 
 class VOCriterion:
     def __init__(self, t_crit='rms', rot_crit='none', flow_crit='none', target_t_crit='none',
-                 t_factor=1.0, rot_factor=1.0, flow_factor=1.0, target_t_factor=1.0):
+                 t_factor=1.0, rot_factor=1.0, flow_factor=1.0, target_t_factor=1.0,
+                 loss_weight='none', len_path=8):
 
         self.criterion_str = 't_crit_' + str(t_crit) + '_factor_' + str(t_factor).replace('.', '_')
 
@@ -158,18 +183,37 @@ class VOCriterion:
         self.flow_factor = flow_factor
         self.target_t_factor = target_t_factor
 
-        if t_crit == 'partial_rms':
+        # Translation loss
+        if t_crit == 'partial_rms': # This is not described in paper - so don't use
             self.calc_t_crit = self.calc_partial_poses_t
         elif t_crit == 'mean_partial_rms':
-            self.calc_t_crit = self.calc_mean_partial_poses_t
+            self.calc_t_crit = self.calc_mean_partial_poses_t # This is partial- meansRMS
         else:
-            self.calc_t_crit = self.calc_cumul_poses_t
+            self.calc_t_crit = self.calc_cumul_poses_t # This is RMS
 
-        self.calc_rot_crit = self.calc_none
+        # Add loss of rotation - Got from github
+        if rot_crit == 'quat_product':
+            self.calc_rot_crit = self.calc_rot_quat_product
+        else:
+            self.calc_rot_crit = self.calc_none
 
-        self.calc_flow_crit = self.calc_none
+        # Add lose of flow - MSE and MAE - got from github
+        if flow_crit == 'mse':
+            self.calc_flow_crit = CalcCriterion(MSELoss)
+        elif flow_crit == 'mae':
+            self.calc_flow_crit = CalcCriterion(MAELoss)
+        else:
+            self.calc_flow_crit = self.calc_none
 
         self.calc_target_t_product = True
+
+        # Add weights to loss
+        if loss_weight == "none":
+            self.loss_weight = torch.ones(len_path).to('cuda')
+        else: # Soft-max loss
+            loss_weight = torch.exp(torch.tensor([-x for x in range(len_path - 1, -1, -1)]))  # soft-max like weights
+            loss_weight = loss_weight / sum(loss_weight)  # normalize
+            self.loss_weight = loss_weight.to('cuda')
 
     def apply(self, model_output, scale, motions_gt, target_pose, flow_clean=None):
         motions, flow = model_output
@@ -183,8 +227,10 @@ class VOCriterion:
                                 device=motions.device, dtype=motions.dtype)
         rot_crit[1:] = scale * self.calc_rot_crit(motions, motions_gt)
         flow_crit[1:] = scale * self.calc_flow_crit(flow, flow_clean)
-        return self.t_factor * t_crit + self.target_t_factor * target_t_crit + \
+
+        loss = self.t_factor * t_crit + self.target_t_factor * target_t_crit + \
                self.rot_factor * rot_crit + self.flow_factor * flow_crit
+        return loss * self.loss_weight
 
     def __call__(self, model_output, scale, motions_gt, target_pose, flow_clean=None) -> torch.tensor:
         return self.apply(model_output, scale, motions_gt, target_pose, flow_clean)
@@ -255,6 +301,7 @@ class VOCriterion:
             cumulative_poses[pose_idx + 1] = curr_cumulative_pose
         return cumulative_poses
 
+    # Calculate translation error
     def translation_error(self, cumul_poses, cumul_poses_gt, target):
         cumul_delta_t = cumul_poses[:, 0:3, 3] - cumul_poses_gt[:, 0:3, 3]
         t_error = torch.norm(cumul_delta_t, p=2, dim=1)
@@ -263,7 +310,13 @@ class VOCriterion:
             target_gt_t = (cumul_poses_gt[:, 0:3, 3] - target)
             target_gt_t_hat = torch.nn.functional.normalize(target_gt_t, p=2, dim=1).unsqueeze(2)
             t_target_error = (cumul_delta_t.unsqueeze(1).bmm(target_gt_t_hat)).view(-1)
-        return t_error, t_target_error
+        return t_error, t_target_error # T-error is just cumul_pose errors
+
+    def rotation_quat_product(self, rot_quat, rot_quat_gt):
+        scalar_product = rot_quat.unsqueeze(1).bmm(rot_quat_gt.unsqueeze(2)).view(-1)
+        r_errors = 1 - scalar_product
+        return r_errors
+
 
     def rtvec_to_pose(self, rtvec):
         return rtvec_to_pose(rtvec)

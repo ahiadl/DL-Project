@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from attacks.attack import Attack
+from attacks.attack_sna import Attack
 import time
 from tqdm import tqdm
 import cv2
@@ -183,11 +183,12 @@ class PGD(Attack):
                 print(" evaluating perturbation")
                 eval_start_time = time.time()
 
-                with torch.no_grad():
+                with torch.no_grad(): # Test on evaluation - check here only RMS
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
-
-                    if eval_loss_tot > best_loss_sum:
+                    # eval_loss_tot - Sum over loss list
+                    # eval_loss_list - list of loss over all projections
+                    if eval_loss_tot > best_loss_sum: # Check if best then previous approach
                         best_pert = pert.clone().detach()
                         best_loss_list = eval_loss_list
                         best_loss_sum = eval_loss_tot

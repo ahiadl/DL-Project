@@ -5,8 +5,10 @@ from pathlib import Path
 import cv2
 import torch
 import matplotlib.pyplot as plt
-
-from utils import get_args
+from utils_sna import get_args
+import matplotlib
+matplotlib.use('TkAgg')
+#from utils import get_args
 import numpy as np
 from Datasets.utils import plot_traj, visflow
 from Datasets.transformation import ses2poses_quat, pos_quats2SE_matrices
@@ -269,6 +271,8 @@ def test_model(model, criterions, img1, img2, intrinsic, scale_gt, motions_targe
 
 
 def test_clean_multi_inputs(args):
+    flag_print = 0 # Sagi added this so their won't be so much printing
+
     dataset_idx_list = []
     dataset_name_list = []
     traj_name_list = []
@@ -281,58 +285,59 @@ def test_clean_multi_inputs(args):
     traj_clean_criterions_list = [[] for crit in args.criterions]
     frames_clean_criterions_list = [[[] for i in range(args.traj_len)] for crit in args.criterions]
 
-    print("len(args.testDataloader)")
-    print(len(args.testDataloader))
+    if flag_print == 1:
+        print("len(args.testDataloader)")
+        print(len(args.testDataloader))
     for traj_idx, traj_data in enumerate(args.testDataloader):
         dataset_idx, dataset_name, traj_name, traj_len, \
         img1_I0, img2_I0, intrinsic_I0, \
         img1_I1, img2_I1, intrinsic_I1, \
         img1_delta, img2_delta, \
         motions_gt, scale_gt, pose_quat_gt, patch_pose, mask, perspective = extract_traj_data(traj_data)
+        if flag_print == 1:
+            print("dataset_idx")
+            print(dataset_idx)
+            print("dataset_name")
+            print(dataset_name)
+            print("traj_idx")
+            print(traj_idx)
+            print("traj_name")
+            print(traj_name)
+            print("traj_len")
+            print(traj_len)
+            print("img1_I0.shape")
+            print(img1_I0.shape)
+            print("img2_I0.shape")
+            print(img2_I0.shape)
+            print("intrinsic_I0.shape")
+            print(intrinsic_I0.shape)
+            print("img1_I1.shape")
+            print(img1_I1.shape)
+            print("img2_I1.shape")
+            print(img2_I1.shape)
+            print("intrinsic_I1.shape")
+            print(intrinsic_I1.shape)
+            print("img1_delta.shape")
+            print(img1_delta.shape)
+            print("img2_delta.shape")
+            print(img2_delta.shape)
+            print("motions_gt.shape")
+            print(motions_gt.shape)
+            print("scale_gt.shape")
+            print(scale_gt.shape)
+            print("pose_quat_gt.shape")
+            print(pose_quat_gt.shape)
+            print("patch_pose.shape")
+            print(patch_pose.shape)
 
-        print("dataset_idx")
-        print(dataset_idx)
-        print("dataset_name")
-        print(dataset_name)
-        print("traj_idx")
-        print(traj_idx)
-        print("traj_name")
-        print(traj_name)
-        print("traj_len")
-        print(traj_len)
-        print("img1_I0.shape")
-        print(img1_I0.shape)
-        print("img2_I0.shape")
-        print(img2_I0.shape)
-        print("intrinsic_I0.shape")
-        print(intrinsic_I0.shape)
-        print("img1_I1.shape")
-        print(img1_I1.shape)
-        print("img2_I1.shape")
-        print(img2_I1.shape)
-        print("intrinsic_I1.shape")
-        print(intrinsic_I1.shape)
-        print("img1_delta.shape")
-        print(img1_delta.shape)
-        print("img2_delta.shape")
-        print(img2_delta.shape)
-        print("motions_gt.shape")
-        print(motions_gt.shape)
-        print("scale_gt.shape")
-        print(scale_gt.shape)
-        print("pose_quat_gt.shape")
-        print(pose_quat_gt.shape)
-        print("patch_pose.shape")
-        print(patch_pose.shape)
+            print("mask.shape")
+            print(mask.shape)
+            print("perspective.shape")
+            print(perspective.shape)
 
-        print("mask.shape")
-        print(mask.shape)
-        print("perspective.shape")
-        print(perspective.shape)
+            print("traj_mask_l0_ratio")
+            print(traj_mask_l0_ratio)
         traj_mask_l0_ratio = (mask.count_nonzero() / mask.numel()).item()
-
-        print("traj_mask_l0_ratio")
-        print(traj_mask_l0_ratio)
 
 
         dataset_idx_list.append(dataset_idx)
@@ -353,8 +358,9 @@ def test_clean_multi_inputs(args):
             for crit_idx, crit_result in enumerate(crit_results):
                 crit_result_list = crit_result.tolist()
                 traj_clean_criterions_list[crit_idx].append(crit_result_list)
-                print(args.criterions_names[crit_idx] + " for trajectory: " + traj_name)
-                print(crit_result_list)
+                if flag_print == 1:
+                    print(args.criterions_names[crit_idx] + " for trajectory: " + traj_name)
+                    print(crit_result_list)
                 for frame_idx, frame_clean_crit in enumerate(crit_result_list):
                     frames_clean_criterions_list[crit_idx][frame_idx].append(frame_clean_crit)
             del crit_results
@@ -387,17 +393,19 @@ def test_clean_multi_inputs(args):
     for crit_idx, frames_clean_crit_list in enumerate(frames_clean_criterions_list):
         frames_clean_crit_mean = [np.mean(crit_list) for crit_list in frames_clean_crit_list]
         frames_clean_crit_std = [np.std(crit_list) for crit_list in frames_clean_crit_list]
-        print("frames_clean_" + args.criterions_names[crit_idx] + "_mean over all (" + str(len(traj_name_list)) + ") trajectories:")
-        print(frames_clean_crit_mean)
-        print("frames_clean_" + args.criterions_names[crit_idx] + "_std over all (" + str(len(traj_name_list)) + ") trajectories:")
-        print(frames_clean_crit_std)
+        if flag_print == 1:
+            print("frames_clean_" + args.criterions_names[crit_idx] + "_mean over all (" + str(len(traj_name_list)) + ") trajectories:")
+            print(frames_clean_crit_mean)
+            print("frames_clean_" + args.criterions_names[crit_idx] + "_std over all (" + str(len(traj_name_list)) + ") trajectories:")
+            print(frames_clean_crit_std)
 
     traj_mask_l0_ratio_mean = np.mean(traj_mask_l0_ratio_list)
     traj_mask_l0_ratio_std = np.std(traj_mask_l0_ratio_list)
-    print("traj_mask_l0_ratio_mean over all (" + str(len(traj_name_list)) + ") trajectories:")
-    print(traj_mask_l0_ratio_mean)
-    print("traj_mask_l0_ratio_std over all (" + str(len(traj_name_list)) + ") trajectories:")
-    print(traj_mask_l0_ratio_std)
+    if flag_print == 1:
+        print("traj_mask_l0_ratio_mean over all (" + str(len(traj_name_list)) + ") trajectories:")
+        print(traj_mask_l0_ratio_mean)
+        print("traj_mask_l0_ratio_std over all (" + str(len(traj_name_list)) + ") trajectories:")
+        print(traj_mask_l0_ratio_std)
 
     frames_motions_scales = [[motions_scales[i] for motions_scales in traj_motions_scales]
                              for i in range(traj_len - 1)]
@@ -408,13 +416,13 @@ def test_clean_multi_inputs(args):
     for motion_scale in frames_motions_scales_means:
         curr_dist += motion_scale
         frames_mean_dist.append(curr_dist)
-
-    print("frames_motions_scales_means over all (" + str(len(traj_name_list)) + ") trajectories:")
-    print(frames_motions_scales_means)
-    print("frames_motions_scales_stds over all (" + str(len(traj_name_list)) + ") trajectories:")
-    print(frames_motions_scales_stds)
-    print("frames_mean_dist over all (" + str(len(traj_name_list)) + ") trajectories:")
-    print(frames_mean_dist)
+    if flag_print == 1:
+        print("frames_motions_scales_means over all (" + str(len(traj_name_list)) + ") trajectories:")
+        print(frames_motions_scales_means)
+        print("frames_motions_scales_stds over all (" + str(len(traj_name_list)) + ") trajectories:")
+        print(frames_motions_scales_stds)
+        print("frames_mean_dist over all (" + str(len(traj_name_list)) + ") trajectories:")
+        print(frames_mean_dist)
 
     del frames_clean_criterions_list
     del frames_motions_scales_means
@@ -427,6 +435,7 @@ def test_clean_multi_inputs(args):
            traj_clean_criterions_list, traj_clean_motions
 
 
+# This tests on custom data and reports everything
 def test_adv_trajectories(dataloader, model, motions_target_list, attack, pert,
                           criterions, window_size,
                           save_imgs, save_flow, save_pose,
@@ -616,6 +625,89 @@ def report_adv_deviation(dataset_idx_list, dataset_name_list, traj_name_list, tr
            frames_delta_ratio_crit_mean, frames_delta_ratio_crit_std
 
 
+def split_data(args, motions_target_list, num_train = 1, flag_eval = True, flag_test = True):
+    # A
+
+    folds_num = args.traj_datasets # Number of folders
+    folds_indices_list = list(range(folds_num))
+    random.shuffle(folds_indices_list) # Shuffles
+
+    # Train data-set
+    train_motions_target_list = []
+    train_index = folds_indices_list[0:num_train]
+    train_dataset = args.dataset_class(args.test_dir, processed_data_folder=args.processed_data_dir,
+                                      preprocessed_data=True,
+                                      transform=args.transform,
+                                      data_size=(args.image_height, args.image_width),
+                                      focalx=args.focalx,
+                                      focaly=args.focaly,
+                                      centerx=args.centerx,
+                                      centery=args.centery,
+                                      max_traj_len=args.max_traj_len,
+                                      max_dataset_traj_num=args.max_traj_num,
+                                      max_traj_datasets=args.max_traj_datasets,
+                                      folder_indices_list=train_index)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
+                                 shuffle=False, num_workers=args.worker_num)
+    for idx0,idx1 in enumerate(train_index):
+        for curr_idx in range(idx1*10, (idx1+1)*10):
+            train_motions_target_list.append(motions_target_list[curr_idx])
+
+    # Eval data-set
+    eval_motions_target_list = []
+    if flag_eval is True:
+        eval_indices = folds_indices_list[num_train:num_train+1]
+        eval_dataset = args.dataset_class(args.test_dir, processed_data_folder=args.processed_data_dir,
+                                          preprocessed_data=True,
+                                          transform=args.transform,
+                                          data_size=(args.image_height, args.image_width),
+                                          focalx=args.focalx,
+                                          focaly=args.focaly,
+                                          centerx=args.centerx,
+                                          centery=args.centery,
+                                          max_traj_len=args.max_traj_len,
+                                          max_dataset_traj_num=args.max_traj_num,
+                                          max_traj_datasets=args.max_traj_datasets,
+                                          folder_indices_list=eval_indices)
+        eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size,
+                                     shuffle=False, num_workers=args.worker_num)
+        for idx0, idx1 in enumerate(eval_indices):
+            for curr_idx in range(idx1 * 10, (idx1 + 1) * 10):
+                eval_motions_target_list.append(motions_target_list[curr_idx])
+    else:
+        eval_dataloader = train_dataloader
+        eval_motions_target_list = train_motions_target_list
+
+    test_motions_target_list = []
+    if flag_test is True:
+        test_indices = folds_indices_list[num_train+1:num_train+2]
+        test_dataset = args.dataset_class(args.test_dir, processed_data_folder=args.processed_data_dir,
+                                           preprocessed_data=True,
+                                           transform=args.transform,
+                                           data_size=(args.image_height, args.image_width),
+                                           focalx=args.focalx,
+                                           focaly=args.focaly,
+                                           centerx=args.centerx,
+                                           centery=args.centery,
+                                           max_traj_len=args.max_traj_len,
+                                           max_dataset_traj_num=args.max_traj_num,
+                                           max_traj_datasets=args.max_traj_datasets,
+                                           folder_indices_list=test_indices)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size,
+                                      shuffle=False, num_workers=args.worker_num)
+        for idx0, idx1 in enumerate(test_indices):
+            for curr_idx in range(idx1 * 10, (idx1 + 1) * 10):
+                test_motions_target_list.append(motions_target_list[curr_idx])
+    else:
+        test_indices = train_index
+        test_dataloader = train_dataloader
+        test_motions_target_list = train_motions_target_list
+
+
+    return train_dataloader, eval_dataloader, test_dataloader,\
+           train_motions_target_list, eval_motions_target_list, test_motions_target_list, \
+           test_indices
+
 def run_attacks_train(args):
     print("Training and testing an adversarial perturbation on the whole dataset")
     print("A single single universal will be produced and then tested on the dataset")
@@ -676,6 +768,119 @@ def run_attacks_train(args):
                          traj_clean_rms_list, traj_adv_rms_list,
                          args.save_csv, args.output_dir, crit_str="rms")
 
+def run_attacks_train_cross_valid(args):
+    print("Split data to train, eval and test")
+    print("Train on train data, choose best pert based on eval")
+    print("Finally test on test data")
+    print("args.attack")
+    print(args.attack)
+    attack = args.attack_obj
+    # Parameters to tune
+    num_train = 2
+
+    ## Test on clean images
+    dataset_idx_list, dataset_name_list, traj_name_list, traj_indices, \
+    motions_gt_list, traj_clean_criterions_list, traj_clean_motions = \
+        test_clean_multi_inputs(args)
+
+    motions_target_list = motions_gt_list
+    traj_clean_rms_list, traj_clean_mean_partial_rms_list, \
+    traj_clean_target_rms_list, traj_clean_target_mean_partial_rms_list = tuple(traj_clean_criterions_list)
+
+
+    # print("traj_name_list")
+    # print(traj_name_list)
+
+
+
+    ## Split data
+    train_dataloader, eval_dataloader, test_dataloader,  \
+    train_motions_target_list, eval_motions_target_list, test_motions_target_list, \
+    test_indices = \
+    split_data(args, motions_target_list, num_train=num_train, flag_eval=True, flag_test=True)
+
+    ## Train attack
+    best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
+        attack.perturb(train_dataloader, train_motions_target_list, eps=args.eps, device=args.device , eval_data_loader = eval_dataloader ,eval_y_list= eval_motions_target_list)
+
+    ## Explain outputs
+    # best_pert - best pertubation
+    # clean_loss_list - for
+    # all_loss_list - list of lists of lists [iteration -> path - > length of path ]
+    # all_best_loss_list - list of lists best losses at each iteration - best is updated only if it is better in overall
+
+    ## Not interseting
+    #print("clean_loss_list")
+    #print(clean_loss_list)
+    #best_loss_list = all_best_loss_list[- 1]
+    #print("best_loss_list")
+    #print(best_loss_list)
+
+    if args.save_best_pert:
+        save_image(best_pert[0], args.adv_best_pert_dir + '/' + 'adv_best_pert.png')
+
+    traj_adv_criterions_list = \
+        test_adv_trajectories(test_dataloader, args.model, test_motions_target_list, attack, best_pert,
+                              args.criterions, args.window_size,
+                              args.save_imgs, args.save_flow, args.save_pose,
+                              args.adv_img_dir, args.adv_pert_dir, args.flowdir, args.pose_dir,
+                              device=args.device)
+    traj_adv_rms_list, traj_adv_mean_partial_rms_list, \
+    traj_adv_target_rms_list, traj_adv_target_mean_partial_rms_list = tuple(traj_adv_criterions_list)
+    # traj_adv_rms_list - this is what we want. This is RMS on the path
+    # traj_adv_mean_partial_rms_list - This is the partial RMS
+    # traj_adv_target_rms_list + traj_adv_target_mean_partial_rms_list - this calculates projection between motion vector and patch direction (this is why they are the same)
+
+
+    # This creates CSV files for our data - on test
+    test_indexs = [x for x in range(test_indices[0]*10,(test_indices[0]+1)*10)]
+
+    test_idx_list = dataset_idx_list[test_indexs[0]:test_indexs[-1]+1]
+    test_name_list = dataset_name_list[test_indexs[0]:test_indexs[-1]+1]
+    test_traj_name_list = traj_name_list[test_indexs[0]:test_indexs[-1]+1]
+    test_traj_indices = traj_indices[test_indexs[0]:test_indexs[-1]+1]
+    test_traj_clean_target_mean_partial_rms_list = traj_clean_target_mean_partial_rms_list[test_indexs[0]:test_indexs[-1]+1]
+    test_traj_clean_target_rms_list = traj_clean_target_rms_list[test_indexs[0]:test_indexs[-1]+1]
+    test_traj_clean_mean_partial_rms_list = traj_clean_mean_partial_rms_list[test_indexs[0]:test_indexs[-1]+1]
+    test_traj_clean_rms_list = traj_clean_rms_list[test_indexs[0]:test_indexs[-1]+1]
+
+    # report_adv_deviation(test_idx_list, test_name_list, test_traj_name_list, test_traj_indices,
+    #                      test_traj_clean_target_mean_partial_rms_list, traj_adv_target_mean_partial_rms_list,
+    #                      args.save_csv, args.output_dir, crit_str="target_mean_partial_rms")
+
+    # report_adv_deviation(test_idx_list, test_name_list, test_traj_name_list, test_traj_indices,
+    #                      test_traj_clean_target_rms_list, traj_adv_target_rms_list,
+    #                      args.save_csv, args.output_dir, crit_str="target_rms")
+
+    # report_adv_deviation(test_idx_list, test_name_list, test_traj_name_list, test_traj_indices,
+    #                      test_traj_clean_mean_partial_rms_list, traj_adv_mean_partial_rms_list,
+    #                      args.save_csv, args.output_dir, crit_str="mean_partial_rms")
+
+    frames_clean_crit_mean, frames_clean_crit_std, \
+    frames_adv_crit_mean, frames_adv_crit_std, \
+    frames_delta_crit_mean, frames_delta_crit_std, \
+    frames_ratio_crit_mean, frames_ratio_crit_std, \
+    frames_delta_ratio_crit_mean, frames_delta_ratio_crit_std = \
+    report_adv_deviation(test_idx_list, test_name_list, test_traj_name_list, test_traj_indices,
+                         test_traj_clean_rms_list, traj_adv_rms_list,
+                         args.save_csv, args.output_dir, crit_str="rms")
+
+    # frames_adv_crit_mean - this is best result
+    # frames_clean_crit_mean - this is clean results
+    # frames_delta_crit_mean - this is defference between clean and best pert
+    plt.plot([1,2,3,4,5,6,7,8], frames_adv_crit_mean, color='r', label='best_adv')
+    plt.plot([1,2,3,4,5,6,7,8], frames_clean_crit_mean, color='g', label='clean')
+
+    # Naming the x-axis, y-axis and the whole graph
+    plt.xlabel("Length of path")
+    plt.ylabel("RMS error")
+    plt.title("Out of sample error")
+
+    plt.legend()
+
+
+
+
 
 def test_clean(args):
     print("Testing the visual odometer on the I1 albedo image compared to the clean I0 albedo image, "
@@ -687,8 +892,8 @@ def main():
     args = get_args()
     if args.attack is None:
         return test_clean(args)
-    return run_attacks_train(args)
-
+    #return run_attacks_train(args)
+    return run_attacks_train_cross_valid(args)
 
 if __name__ == '__main__':
     main()
