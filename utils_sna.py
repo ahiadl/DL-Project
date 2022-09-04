@@ -1,6 +1,6 @@
 import argparse
 import torch
-
+from attacks.apgd_sna import APGD
 from attacks.pgd_sna import PGD
 from attacks import Const
 import torch.backends.cudnn as cudnn
@@ -14,6 +14,8 @@ from os import mkdir, makedirs
 from os.path import isdir
 from loss_sna import VOCriterion
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
 
 
 def parse_args():
@@ -79,7 +81,7 @@ def parse_args():
     parser.add_argument('--attack_rot_crit', default="none", type=str, metavar='ATTRC', help='rotation criterion type for optimizing the attack (default: None)') #'quat_product'
     parser.add_argument('--attack_flow_crit', default="none", type=str, metavar='ATTFC', help='optical flow criterion type for optimizing the attack (default: None)') #'mse' 'mae'
     parser.add_argument('--attack_target_t_crit', default="none", type=str, metavar='ATTTTC',
-                        help='targeted translation criterion target for optimizing the attack, type is the same as untargeted criterion (default: None)')
+                        help='targeted translation criterion target for optimizing the attack, type is the same as untargeted criterion (default: None)') # 'dot'
     parser.add_argument('--attack_t_factor', type=float, default=1.0, help='factor for the translation criterion of the attack (default: 1.0)')
     parser.add_argument('--attack_rot_factor', type=float, default=1.0, help='factor for the rotation criterion of the attack (default: 1.0)')
     parser.add_argument('--attack_flow_factor', type=float, default=1.0, help='factor for the optical flow criterion of the attack (default: 1.0)')
@@ -178,7 +180,7 @@ def compute_VO_args(args):
     print("initializing RMS test criterion")
     args.rms_crit = VOCriterion()
     print("initializing mean partial RMS test criterion")
-    args.mean_partial_rms_crit = VOCriterion(t_crit="mean_partial_rms")
+    args.mean_partial_rms_crit = VOCriterion(t_crit="mean_partial_rms", target_t_factor = 0)
     print("initializing targeted RMS test criterion")
     args.target_rms_crit = VOCriterion(target_t_crit="patch", t_factor=0)
     print("initializing targeted mean partial RMS test criterion")
@@ -216,7 +218,7 @@ def compute_attack_args(args):
         load_pert_transform = Compose([CropCenter((args.image_height, args.image_width)), ToTensor()])
 
     # Thi
-    attack_dict = {'pgd': PGD, 'const': Const}
+    attack_dict = {'pgd': PGD, 'const': Const, 'apgd': APGD}
     #attack_dict = {'pgd': pgd_sna, 'const': Const}
     args.attack_name = args.attack
     if args.attack not in attack_dict:
@@ -235,7 +237,7 @@ def compute_attack_args(args):
                                           data_shape=(args.traj_len - 1, args.image_height, args.image_width),
                                           pert_path=args.load_attack,
                                           pert_transform=const_pert_transform)
-        else:
+        elif args.attack_name =='pgd':
             args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
                                           norm=args.attack_norm,
                                           data_shape=(args.traj_len - 1, args.image_height, args.image_width),
@@ -244,6 +246,17 @@ def compute_attack_args(args):
                                           sample_window_stride=args.window_stride,
                                           init_pert_path=args.load_attack,
                                           init_pert_transform=load_pert_transform)
+        else:
+            args.attack_obj = args.attack(args.model, args.att_criterion, args.att_eval_criterion,
+                                          norm=args.attack_norm,
+                                          data_shape=(args.traj_len - 1, args.image_height, args.image_width),
+                                          n_iter=args.attack_k, alpha=args.alpha, rand_init=True,
+                                          sample_window_size=args.window_size,
+                                          sample_window_stride=args.window_stride,
+                                          init_pert_path=args.load_attack,
+                                          init_pert_transform=load_pert_transform,
+                                          beta = args.beta,
+                                          window_apgd = args.window_apgd)
 
     return args
 
@@ -356,3 +369,99 @@ def get_args():
 
 
 
+
+def plot_iter(
+    train_loss_iter = None,
+    eval_loss_iter = None,
+    test_loss_iter = None,
+):
+    matplotlib.rcParams.update({'font.size': 26})
+
+    num_iter = len(train_loss_iter)
+    fig1 = plt.figure()
+    plt.plot(range(1,num_iter+1), train_loss_iter, 'r', label='train loss'  )
+    plt.plot(range(1,num_iter+1), eval_loss_iter, 'b', label='eval loss')
+    plt.plot(range(1, num_iter + 1), test_loss_iter, 'g', label='test loss')
+    axes1 = fig1.axes
+    axes1[0].set_xlabel("Iteration #")
+    axes1[0].set_ylabel("Loss - RMS")
+    plt.legend()
+    #plt.show()
+
+def wrap_load_args(seed=42, save_flow = False, save_pose = False, save_imgs = False, save_best_pert = True, save_csv = False,
+              attack = 'pgd' ,attack_k=100, alpha = 0.05, MPRMS = False,  attack_t_crit = 'rms', attack_rot_crit ='none', attack_flow_crit='none',
+              attack_target_t_crit = 'dot', attack_t_factor = 1,  attack_rot_factor = 1, attack_flow_factor = 1, attack_target_t_factor = 1,
+               loss_weight = 'none', num_train = 3, beta=0.75, window_apgd = None):
+
+    args = load_args(seed=seed, save_flow = save_flow, save_pose = save_pose, save_imgs = save_imgs, save_best_pert = save_best_pert, save_csv = save_csv,
+              attack = attack ,attack_k=attack_k, alpha = alpha, MPRMS = MPRMS,  attack_t_crit = attack_t_crit, attack_rot_crit = attack_rot_crit,
+              attack_flow_crit=attack_flow_crit, attack_target_t_crit = attack_target_t_crit, attack_t_factor = attack_t_factor,
+              attack_rot_factor = attack_rot_factor, attack_flow_factor = attack_flow_factor, attack_target_t_factor = attack_target_t_factor,
+              loss_weight = loss_weight, num_train = num_train, beta=beta, window_apgd=window_apgd)
+    args = compute_run_args(args)
+    args = compute_data_args(args)
+    args = compute_VO_args(args)
+    args = compute_attack_args(args)
+    args = compute_output_dir(args)
+
+    print("arguments parsing finished")
+    return args
+
+
+def load_args(seed=42, save_flow = False, save_pose = False, save_imgs = False, save_best_pert = True, save_csv = False,
+              attack = 'pgd' ,attack_k=100, alpha = 0.05, MPRMS = False,  attack_t_crit = 'rms', attack_rot_crit ='none', attack_flow_crit='none',
+              attack_target_t_crit = 'dot', attack_t_factor = 1,  attack_rot_factor = 1, attack_flow_factor = 1, attack_target_t_factor = 1,
+                loss_weight = 'none', num_train = 3, beta = 0.75, window_apgd = None):
+    args = argparse.Namespace
+
+    # run params
+    args.seed = seed
+    args.gpus = '0'
+    args.force_cpu = False
+    args.save_flow = save_flow
+    args.save_pose = save_pose
+    args.save_imgs = save_imgs
+    args.save_best_pert = save_best_pert
+    args.save_csv = save_csv
+
+    # data loader params
+    args.batch_size = 1
+    args.worker_num = 1
+    args.image_width = 640
+    args.image_height = 448
+    args.kitti = False
+    args.test_dir = "VO_adv_project_train_dataset_8_frames"
+    args.processed_data_dir = None
+    args.preprocessed_data = True
+    args.max_traj_len = 8 # Length of traj
+    args.max_traj_num = 10 # Number of traj in each dataset
+    args.max_traj_datasets = 5 # Number of datasets of traj
+    #args.pose_file = ""
+    args.model_name = "tartanvo_1914.pkl"
+
+    # adversarial attacks params
+    args.attack = attack # Attack type
+    args.attack_norm = 'Linf'
+    args.attack_k = attack_k #Iterations
+    args.alpha = alpha
+    args.eps = 1
+    args.attack_eval_mean_partial_rms = MPRMS # use mean-partial-rms - if this is turend on, it by-passes RMS
+    args.attack_t_crit = attack_t_crit # RMS or none or PRMS
+    args.attack_rot_crit = attack_rot_crit # 'quat_product' - use rotation
+    args.attack_flow_crit = attack_flow_crit # 'mse', 'mae' or none
+    args.attack_target_t_crit = attack_target_t_crit # 'dot' - this is
+    args.attack_t_factor = attack_t_factor # factor of RMS/MPRMS
+    args.attack_rot_factor = attack_rot_factor # factor rotation
+    args.attack_flow_factor = attack_flow_factor # factor flow
+    args.attack_target_t_factor = attack_target_t_factor # factor dot product
+    args.window_size = None#window_size # Window size
+    args.window_stride = None #window_stride # Window stride
+    args.load_attack = None #load_attack # path previous pert
+
+    # I added
+    args.loss_weight = loss_weight #none - means no weighted loss, 'weighted' 0 means we add weights
+    args.num_train = num_train # Num of traj use
+    args.beta = beta
+    args.window_apgd = window_apgd
+
+    return args

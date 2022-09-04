@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import torch
 import matplotlib.pyplot as plt
-from utils_sna import get_args
+from utils_sna import get_args, wrap_load_args
 import matplotlib
 matplotlib.use('TkAgg')
 #from utils import get_args
@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from random import sample
 import gc
 import csv
-
+import pickle
 
 def save_flow_imgs(flow, flowdir, visflow, dataset_name, traj_name, save_dir_suffix='_clean'):
     flow_save_dir = flowdir + '/' + dataset_name
@@ -776,7 +776,7 @@ def run_attacks_train_cross_valid(args):
     print(args.attack)
     attack = args.attack_obj
     # Parameters to tune
-    num_train = 2
+    num_train = args.num_train
 
     ## Test on clean images
     dataset_idx_list, dataset_name_list, traj_name_list, traj_indices, \
@@ -801,7 +801,8 @@ def run_attacks_train_cross_valid(args):
 
     ## Train attack
     best_pert, clean_loss_list, all_loss_list, all_best_loss_list = \
-        attack.perturb(train_dataloader, train_motions_target_list, eps=args.eps, device=args.device , eval_data_loader = eval_dataloader ,eval_y_list= eval_motions_target_list)
+        attack.perturb(train_dataloader, train_motions_target_list, eps=args.eps, device=args.device , eval_data_loader = eval_dataloader ,eval_y_list= eval_motions_target_list, \
+                       test_data_loader = test_dataloader ,test_y_list= test_motions_target_list)
 
     ## Explain outputs
     # best_pert - best pertubation
@@ -863,11 +864,14 @@ def run_attacks_train_cross_valid(args):
     frames_delta_ratio_crit_mean, frames_delta_ratio_crit_std = \
     report_adv_deviation(test_idx_list, test_name_list, test_traj_name_list, test_traj_indices,
                          test_traj_clean_rms_list, traj_adv_rms_list,
-                         args.save_csv, args.output_dir, crit_str="rms")
+                         args.save_csv, args.output_dir, crit_str="rms") # Get clean + RMS on target
 
     # frames_adv_crit_mean - this is best result
     # frames_clean_crit_mean - this is clean results
     # frames_delta_crit_mean - this is defference between clean and best pert
+    fig1 = plt.figure()
+
+
     plt.plot([1,2,3,4,5,6,7,8], frames_adv_crit_mean, color='r', label='best_adv')
     plt.plot([1,2,3,4,5,6,7,8], frames_clean_crit_mean, color='g', label='clean')
 
@@ -877,9 +881,9 @@ def run_attacks_train_cross_valid(args):
     plt.title("Out of sample error")
 
     plt.legend()
+    #plt.show()
 
-
-
+    return frames_adv_crit_mean, frames_clean_crit_mean
 
 
 def test_clean(args):
@@ -887,13 +891,103 @@ def test_clean(args):
           "I1 is set as the adversarial perturbation")
     return run_attacks_train(args)
 
-
+## Default main with praser
 def main():
     args = get_args()
+    args.train_use = 1
     if args.attack is None:
         return test_clean(args)
     #return run_attacks_train(args)
     return run_attacks_train_cross_valid(args)
 
+def main2():
+    seed = 100
+    attack = 'apgd'
+    attack_k = 100
+    alpha = 0.01 # for 100 epcohs 0.01 is better than 0.1 (0.5 is too high - doesn't learn)
+    MPRMS = False # This is the evaluate criteria - not the train criteria
+    attack_t_crit = 'rms' # 'none' , 'rms', 'mean_partial_rms'
+    attack_rot_crit = 'quat_product' # 'quat_product
+    attack_flow_crit = 'mae', #'mae', 'mse', 'none'
+    attack_target_t_crit = 'dot' #'dot', 'none
+    attack_t_factor = 1
+    attack_rot_factor = 1
+    attack_flow_factor = 1
+    attack_target_t_factor = 1
+    loss_weight = 'weighted' # 'weighted' , 'none'
+    num_train = 3
+    beta = 0.75
+    window_apgd = [10,20,30,40,50,60,70,80,90,100]
+
+    save_res_name = 'results\\result1'
+    alpha_vec = [0.3]
+    attack_vec = ['pgd', 'apgd']
+    attack_flow_crit_vec = ['mae', 'mse', None]
+    frames_adv_crit_mean_save = []
+    args_save = []
+    for alpha in alpha_vec:
+        for attack_flow_crit in attack_flow_crit_vec:
+            for attack in attack_vec:
+
+                args = wrap_load_args(seed=seed, attack=attack, attack_k = attack_k, alpha = alpha, MPRMS = MPRMS, attack_t_crit = attack_t_crit, attack_rot_crit = attack_rot_crit,
+                                      attack_flow_crit = attack_flow_crit, attack_target_t_crit = attack_target_t_crit, attack_t_factor = attack_t_factor, attack_rot_factor= attack_rot_factor,
+                                      attack_flow_factor = attack_flow_factor, attack_target_t_factor = attack_target_t_factor , loss_weight = loss_weight, num_train = num_train, beta=beta,
+                                      window_apgd = window_apgd)
+
+                frames_adv_crit_mean1, frames_clean_crit_mean = run_attacks_train_cross_valid(args)
+                frames_adv_crit_mean_save.append(frames_adv_crit_mean1)
+                args_save.append(args)
+
+    # MPRMS = False
+    # attack_rot_crit = 'quat_product' # 'quat_product
+    #
+    # args2 = wrap_load_args(seed=seed, attack=attack, attack_k = attack_k, alpha = alpha, MPRMS = MPRMS, attack_t_crit = attack_t_crit, attack_rot_crit = attack_rot_crit,
+    #                       attack_flow_crit = attack_flow_crit, attack_target_t_crit = attack_target_t_crit, attack_t_factor = attack_t_factor, attack_rot_factor= attack_rot_factor,
+    #                       attack_flow_factor = attack_flow_factor, attack_target_t_factor = attack_target_t_factor , loss_weight = loss_weight, num_train = num_train)
+    # frames_adv_crit_mean2, frames_clean_crit_mean2 = run_attacks_train_cross_valid(args2)
+
+    ## Save file
+    idx_save = 1
+    while os.path.exists(save_res_name):
+        idx_save += 1
+        save_res_name = 'results\\result' + str(idx_save)
+
+    dict_save = {"mean": frames_adv_crit_mean_save,
+                 "args" : args,
+                 "clean": frames_clean_crit_mean}
+    with open(save_res_name, 'wb') as fp:
+        pickle.dump(dict_save, fp)
+
+    # Load demo
+    # with open(save_res_name, 'rb') as fp:
+    #     itemlist = pickle.load(fp)
+
+
+    ##
+    # Plot results
+    colors = ['r','g','k', 'b', 'c', 'm']
+    fig1 = plt.figure()
+    for idx,val in enumerate(frames_adv_crit_mean_save):
+        plt.plot([1,2,3,4,5,6,7,8], val, color=colors[idx], label='best_adv ' + str(idx))
+        print('best res iter ' + str(idx))
+        print(val)
+
+    plt.plot([1,2,3,4,5,6,7,8], frames_clean_crit_mean, color='y', label='clean')
+    print('Clean res' )
+    print(frames_clean_crit_mean)
+
+    # Naming the x-axis, y-axis and the whole graph
+    plt.xlabel("Length of path")
+    plt.ylabel("RMS error")
+    plt.title("Out of sample error")
+
+    plt.legend()
+    plt.show()
+
+
+
+
+
 if __name__ == '__main__':
-    main()
+    main2()
+    #main()

@@ -159,7 +159,7 @@ class CalcCriterion:
 
 class VOCriterion:
     def __init__(self, t_crit='rms', rot_crit='none', flow_crit='none', target_t_crit='none',
-                 t_factor=1.0, rot_factor=1.0, flow_factor=1.0, target_t_factor=1.0,
+                     t_factor=1.0, rot_factor=1.0, flow_factor=1.0, target_t_factor=1.0,
                  loss_weight='none', len_path=8):
 
         self.criterion_str = 't_crit_' + str(t_crit) + '_factor_' + str(t_factor).replace('.', '_')
@@ -205,14 +205,18 @@ class VOCriterion:
         else:
             self.calc_flow_crit = self.calc_none
 
-        self.calc_target_t_product = True
+        # Translation loss with product with direction of patch - this looks tries to make the drone go towards patch
+        if target_t_crit == 'dot':
+            self.calc_target_t_product = True
+        else:
+            self.calc_target_t_product = False
 
         # Add weights to loss
         if loss_weight == "none":
             self.loss_weight = torch.ones(len_path).to('cuda')
         else: # Soft-max loss
             loss_weight = torch.exp(torch.tensor([-x for x in range(len_path - 1, -1, -1)]))  # soft-max like weights
-            loss_weight = loss_weight / sum(loss_weight)  # normalize
+            loss_weight = loss_weight / sum(loss_weight) * len_path  # normalize sum to lenght of path
             self.loss_weight = loss_weight.to('cuda')
 
     def apply(self, model_output, scale, motions_gt, target_pose, flow_clean=None):

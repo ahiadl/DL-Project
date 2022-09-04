@@ -5,9 +5,10 @@ from attacks.attack_sna import Attack
 import time
 from tqdm import tqdm
 import cv2
+from Datasets.tartanTrajFlowDataset import extract_traj_data
 
 
-class PGD(Attack):
+class APGD(Attack):
     def __init__(
             self,
             model,
@@ -23,10 +24,14 @@ class PGD(Attack):
             sample_window_stride=None,
             pert_padding=(0, 0),
             init_pert_path=None,
-            init_pert_transform=None):
-        super(PGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
+            init_pert_transform=None,
+            window_apgd=None,
+            beta = 0.75,
+            rho = 0.75): #beta is alpha from the paper (0.75) - moment like variable
+        super(APGD, self).__init__(model, criterion, test_criterion, norm, data_shape,
                                   sample_window_size, sample_window_stride,
                                   pert_padding)
+
 
         self.alpha = alpha
 
@@ -42,6 +47,20 @@ class PGD(Attack):
                 self.init_pert = torch.tensor(self.init_pert).unsqueeze(0)
             else:
                 self.init_pert = init_pert_transform({'img': self.init_pert})['img'].unsqueeze(0)
+
+
+        ## Added for APGD
+        self.count_iter = 0
+        self.window_apgd = window_apgd
+        self.pert_k = self.init_pert
+        self.pert_k_1 = None
+        self.best_loss = None
+        self.beta = beta
+        self.count_success = 0
+        self.rho = rho
+        self.count_window = 0
+        self.loss_window = None
+        self.alpha_window = self.alpha
 
     def calc_sample_grad_single(self, pert, img1_I0, img2_I0, intrinsic_I0, img1_delta, img2_delta,
                          scale, y, clean_flow, target_pose, perspective1, perspective2, mask1, mask2, device=None):
@@ -195,6 +214,7 @@ class PGD(Attack):
 
                 with torch.no_grad(): # Test on evaluation - check here only RMS
 
+                    # Based on evaluation set
                     eval_loss_tot, eval_loss_list = self.attack_eval(pert, data_shape, eval_data_loader, eval_y_list,
                                                                      device)
                     # eval_loss_tot - Sum over loss list
@@ -231,9 +251,9 @@ class PGD(Attack):
                     print(" " + str(traj_best_loss_mean_list))
                     print(" trajectories clean loss mean list:")
                     print(" " + str(traj_clean_loss_mean_list))
-                    print(" current trajectories loss sum:")
+                    print(" current trajectories loss sum, evaluation data:")
                     print(" " + str(eval_loss_tot))
-                    print(" current trajectories best loss sum:")
+                    print(" current trajectories best loss sum, evaluation data:")
                     print(" " + str(best_loss_sum))
                     print(" trajectories clean loss sum:")
                     print(" " + str(clean_loss_sum))
@@ -249,3 +269,174 @@ class PGD(Attack):
 
         return best_pert.detach(), eval_clean_loss_list, all_loss, all_best_loss
 
+    def gradient_ascent_step_first_step(self, pert, data_shape, data_loader, y_list, clean_flow_list,
+                             multiplier, a_abs, eps, device=None):
+
+        pert_expand = pert.expand(data_shape[0], -1, -1, -1).to(device)
+        grad_tot = torch.zeros_like(pert, requires_grad=False)
+        with torch.no_grad():
+            self.pert_k = pert # k=0
+        for data_idx, data in enumerate(data_loader):
+            dataset_idx, dataset_name, traj_name, traj_len, \
+            img1_I0, img2_I0, intrinsic_I0, \
+            img1_I1, img2_I1, intrinsic_I1, \
+            img1_delta, img2_delta, \
+            motions_gt, scale, pose_quat_gt, patch_pose, mask, perspective = extract_traj_data(data)
+            mask1, mask2, perspective1, perspective2 = self.prep_data(mask, perspective)
+            grad = self.calc_sample_grad(pert_expand, img1_I0, img2_I0, intrinsic_I0,
+                                         img1_delta, img2_delta,
+                                         scale, y_list[data_idx], clean_flow_list[data_idx], patch_pose,
+                                         perspective1, perspective2,
+                                         mask1, mask2, device=device)
+            grad = grad.sum(dim=0, keepdims=True).detach()
+
+            with torch.no_grad():
+                grad_tot += grad
+
+            del grad
+            del img1_I0
+            del img2_I0
+            del intrinsic_I0
+            del img1_I1
+            del img2_I1
+            del intrinsic_I1
+            del img1_delta
+            del img2_delta
+            del motions_gt
+            del scale
+            del pose_quat_gt
+            del patch_pose
+            del mask
+            del perspective
+            torch.cuda.empty_cache()
+
+        with torch.no_grad():
+            # Step
+            grad = self.normalize_grad(grad_tot)
+            pert += multiplier * a_abs * grad
+            pert = self.project(pert, eps)
+
+            # Save pert for next steps
+            self.pert_k_1 = self.pert_k # Move curr to previous
+            self.pert_k = pert # Assign curr
+
+
+            # decide if to take new patch
+            loss_tot_new_pert, loss_tot_list_new_pert = self.attack_eval(pert, data_shape, data_loader, y_list, device) #k=1
+            loss_tot_prev_pert, loss_tot_list_prev_pert = self.attack_eval(self.pert_k_1, data_shape, data_loader, y_list, device) #k=0
+
+            if loss_tot_new_pert>loss_tot_prev_pert: # If new is better assign its loss, don't change output pert
+                self.best_loss = loss_tot_new_pert
+                self.count_success += 1
+            else: # If old is better, use its loss + change output pert to previous
+                pert = self.pert_k_1
+                self.best_loss = loss_tot_prev_pert
+
+            self.loss_window = self.best_loss
+
+            del loss_tot_new_pert
+            del loss_tot_list_new_pert
+            del loss_tot_prev_pert
+            del loss_tot_list_prev_pert
+
+
+        return pert
+
+    def gradient_ascent_step_after_first(self, pert, data_shape, data_loader, y_list, clean_flow_list,
+                             multiplier, a_abs, eps, device=None):
+
+        pert_expand = pert.expand(data_shape[0], -1, -1, -1).to(device)
+        grad_tot = torch.zeros_like(pert, requires_grad=False)
+
+        for data_idx, data in enumerate(data_loader):
+            dataset_idx, dataset_name, traj_name, traj_len, \
+            img1_I0, img2_I0, intrinsic_I0, \
+            img1_I1, img2_I1, intrinsic_I1, \
+            img1_delta, img2_delta, \
+            motions_gt, scale, pose_quat_gt, patch_pose, mask, perspective = extract_traj_data(data)
+            mask1, mask2, perspective1, perspective2 = self.prep_data(mask, perspective)
+            grad = self.calc_sample_grad(pert_expand, img1_I0, img2_I0, intrinsic_I0,
+                                         img1_delta, img2_delta,
+                                         scale, y_list[data_idx], clean_flow_list[data_idx], patch_pose,
+                                         perspective1, perspective2,
+                                         mask1, mask2, device=device)
+            grad = grad.sum(dim=0, keepdims=True).detach()
+
+            with torch.no_grad():
+                grad_tot += grad
+
+            del grad
+            del img1_I0
+            del img2_I0
+            del intrinsic_I0
+            del img1_I1
+            del img2_I1
+            del intrinsic_I1
+            del img1_delta
+            del img2_delta
+            del motions_gt
+            del scale
+            del pose_quat_gt
+            del patch_pose
+            del mask
+            del perspective
+            torch.cuda.empty_cache()
+
+        with torch.no_grad():
+            # Update z
+            grad = self.normalize_grad(grad_tot)
+            z = pert
+            z += multiplier * a_abs * grad
+            z = self.project(z, eps)
+
+            pert += self.beta*(z-self.pert_k) + (1-self.beta)*(self.pert_k-self.pert_k_1)
+            pert = self.project(pert, eps) # (k+1)
+
+            # Save pert for next steps
+            self.pert_k_1 = self.pert_k # Move curr to previous
+            self.pert_k = pert # Assign curr
+
+            # decide if to take new patch - based on training
+            loss_tot_new_pert, loss_tot_list_new_pert = self.attack_eval(pert, data_shape, data_loader, y_list, device)
+            if loss_tot_new_pert>self.best_loss: # If new loss is higher assign to it new loss
+                self.best_loss = loss_tot_new_pert
+                self.count_success += 1
+            else: # if new loss is lower use previous pert
+                pert = self.pert_k_1
+
+            del loss_tot_new_pert
+            del loss_tot_list_new_pert
+
+
+
+        return pert
+
+    def gradient_ascent_step(self, pert, data_shape, data_loader, y_list, clean_flow_list,
+                                         multiplier, a_abs, eps, device=None):
+        self.count_iter += 1
+        if self.count_iter == 1:
+            return self.gradient_ascent_step_first_step(pert, data_shape, data_loader, y_list, clean_flow_list,
+                                        multiplier, self.alpha, eps, device=device)
+        else:
+            pert = self.gradient_ascent_step_after_first(pert, data_shape, data_loader, y_list, clean_flow_list,
+                                        multiplier, self.alpha, eps, device=device)
+
+            # Check if this is an iter where which check to reduce step size
+            if self.window_apgd[self.count_window] == self.count_iter:
+                # Check first condition
+                if self.count_window == 0:
+                    prev_window = 0
+                else:
+                    prev_window = self.window_apgd[self.count_window - 1]
+                curr_window = self.window_apgd[self.count_window]
+                rat = self.rho * (curr_window-prev_window )
+
+                if (self.count_success < rat) | ((self.loss_window == self.best_loss) & (self.alpha_window == self.alpha)):
+                    self.alpha = self.alpha/2
+                    self.pert_k = pert
+                self.count_success = 0  # Zero out count success
+                self.alpha_window = self.alpha
+                self.loss_window = self.best_loss
+                self.count_window += 1
+
+            return pert
