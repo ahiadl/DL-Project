@@ -869,21 +869,21 @@ def run_attacks_train_cross_valid(args):
     # frames_adv_crit_mean - this is best result
     # frames_clean_crit_mean - this is clean results
     # frames_delta_crit_mean - this is defference between clean and best pert
-    fig1 = plt.figure()
-
-
-    plt.plot([1,2,3,4,5,6,7,8], frames_adv_crit_mean, color='r', label='best_adv')
-    plt.plot([1,2,3,4,5,6,7,8], frames_clean_crit_mean, color='g', label='clean')
-
-    # Naming the x-axis, y-axis and the whole graph
-    plt.xlabel("Length of path")
-    plt.ylabel("RMS error")
-    plt.title("Out of sample error")
-
-    plt.legend()
+    # fig1 = plt.figure()
+    #
+    #
+    # plt.plot([1,2,3,4,5,6,7,8], frames_adv_crit_mean, color='r', label='best_adv')
+    # plt.plot([1,2,3,4,5,6,7,8], frames_clean_crit_mean, color='g', label='clean')
+    #
+    # # Naming the x-axis, y-axis and the whole graph
+    # plt.xlabel("Length of path")
+    # plt.ylabel("RMS error")
+    # plt.title("Out of sample error")
+    #
+    # plt.legend()
     #plt.show()
 
-    return frames_adv_crit_mean, frames_clean_crit_mean
+    return best_pert, frames_adv_crit_mean, frames_clean_crit_mean
 
 
 def test_clean(args):
@@ -902,11 +902,15 @@ def main():
 
 def main2():
     seed = 100
-    attack = 'apgd'
+    attack = 'apgd' # 'pgd', 'apgd' 'const'
     attack_k = 100
-    alpha = 0.01 # for 100 epcohs 0.01 is better than 0.1 (0.5 is too high - doesn't learn)
+    alpha = 0.01 # for 100 epcohs - 0.3 looks good
+
+    # Loss Eval
     MPRMS = False # This is the evaluate criteria - not the train criteria
-    attack_t_crit = 'rms' # 'none' , 'rms', 'mean_partial_rms'
+
+    # Loss train
+    attack_t_crit = 'rms' # 'none' = 'rms', 'mean_partial_rms'
     attack_rot_crit = 'quat_product' # 'quat_product
     attack_flow_crit = 'mae', #'mae', 'mse', 'none'
     attack_target_t_crit = 'dot' #'dot', 'none
@@ -915,8 +919,11 @@ def main2():
     attack_flow_factor = 1
     attack_target_t_factor = 1
     loss_weight = 'weighted' # 'weighted' , 'none'
-    num_train = 3
-    beta = 0.75
+
+    num_train = 3 # How many training paths to use
+
+    # Paramaters for APGD
+    beta = 0.75 # From paper
     window_apgd = [10,20,30,40,50,60,70,80,90,100]
 
     save_res_name = 'results\\result1'
@@ -925,6 +932,7 @@ def main2():
     attack_flow_crit_vec = ['mae', 'mse', None]
     frames_adv_crit_mean_save = []
     args_save = []
+    pert_save = []
     for alpha in alpha_vec:
         for attack_flow_crit in attack_flow_crit_vec:
             for attack in attack_vec:
@@ -934,10 +942,10 @@ def main2():
                                       attack_flow_factor = attack_flow_factor, attack_target_t_factor = attack_target_t_factor , loss_weight = loss_weight, num_train = num_train, beta=beta,
                                       window_apgd = window_apgd)
 
-                frames_adv_crit_mean1, frames_clean_crit_mean = run_attacks_train_cross_valid(args)
+                best_pert, frames_adv_crit_mean1, frames_clean_crit_mean = run_attacks_train_cross_valid(args)
                 frames_adv_crit_mean_save.append(frames_adv_crit_mean1)
                 args_save.append(args)
-
+                pert_save.append(best_pert)
     # MPRMS = False
     # attack_rot_crit = 'quat_product' # 'quat_product
     #
@@ -954,7 +962,8 @@ def main2():
 
     dict_save = {"mean": frames_adv_crit_mean_save,
                  "args" : args,
-                 "clean": frames_clean_crit_mean}
+                 "clean": frames_clean_crit_mean,
+                 "pert" : pert_save}
     with open(save_res_name, 'wb') as fp:
         pickle.dump(dict_save, fp)
 
